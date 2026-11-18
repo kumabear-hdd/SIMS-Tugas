@@ -82,10 +82,10 @@ export const BulkImportUsersModal: React.FC<BulkImportUsersModalProps> = ({
         <div className="space-y-4 overflow-y-auto pr-1">
           <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="text-xs text-slate-300 space-y-1">
-              <div className="font-semibold text-white">Format Kolom CSV Wajib:</div>
-              <div className="font-mono text-blue-300">Name, Username, Password, Role</div>
+              <div className="font-semibold text-white">Format Kolom CSV:</div>
+              <div className="font-mono text-blue-300">Name, Username, Password, Role, Subject, Group</div>
               <div className="text-slate-400">
-                Nilai <code className="text-slate-200">Role</code> yang didukung: Siswa, Guru, Administrator.
+                <code className="text-slate-200">Role</code>: Siswa, Guru, Administrator. Isi <code className="text-slate-200">Subject</code> (Mapel) untuk Guru, dan <code className="text-slate-200">Group</code> (Ikhwan / Akhwat) untuk Siswa.
               </div>
             </div>
             <button
@@ -166,7 +166,7 @@ export const BulkImportUsersModal: React.FC<BulkImportUsersModalProps> = ({
                       <tr>
                         <th className="p-2.5 font-semibold">Nama</th>
                         <th className="p-2.5 font-semibold">Username</th>
-                        <th className="p-2.5 font-semibold">Peran</th>
+                        <th className="p-2.5 font-semibold">Peran &amp; Keterangan</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/70">
@@ -175,17 +175,35 @@ export const BulkImportUsersModal: React.FC<BulkImportUsersModalProps> = ({
                           <td className="p-2.5 text-white font-medium">{u.name}</td>
                           <td className="p-2.5 text-slate-300 font-mono">@{u.username}</td>
                           <td className="p-2.5">
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
-                                u.role === 'Administrator'
-                                  ? 'bg-purple-500/20 text-purple-300'
-                                  : u.role === 'Guru'
-                                  ? 'bg-emerald-500/20 text-emerald-300'
-                                  : 'bg-blue-500/20 text-blue-300'
-                              }`}
-                            >
-                              {u.role}
-                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[11px] font-semibold ${
+                                  u.role === 'Administrator'
+                                    ? 'bg-purple-500/20 text-purple-300'
+                                    : u.role === 'Guru'
+                                    ? 'bg-emerald-500/20 text-emerald-300'
+                                    : 'bg-blue-500/20 text-blue-300'
+                                }`}
+                              >
+                                {u.role}
+                              </span>
+                              {u.role === 'Guru' && u.subject && (
+                                <span className="px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-950/60 text-emerald-200 border border-emerald-500/30">
+                                  Mapel: {u.subject}
+                                </span>
+                              )}
+                              {u.role === 'Siswa' && u.student_group && (
+                                <span
+                                  className={`px-2 py-0.5 rounded-full text-[11px] font-medium border ${
+                                    u.student_group === 'Ikhwan'
+                                      ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                      : 'bg-pink-500/15 text-pink-300 border-pink-500/30'
+                                  }`}
+                                >
+                                  {u.student_group}
+                                </span>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}

@@ -1,3 +1,5 @@
+export type StudentGroup = 'Ikhwan' | 'Akhwat';
+
 export interface SimsUser {
   id: number;
   username: string;
@@ -5,6 +7,8 @@ export interface SimsUser {
   role: 'Siswa' | 'Guru' | 'Administrator';
   active: boolean;
   password?: string;
+  subject?: string;
+  student_group?: StudentGroup;
 }
 
 export interface SimsAssignment {
@@ -92,6 +96,42 @@ export function validateUserRegistration(params: {
   }
 
   return { valid: true, cleanName, cleanUsername };
+}
+
+export function normalizeStudentGroup(rawGroup: string): StudentGroup | null {
+  const normalized = rawGroup.trim().toLowerCase();
+  if (normalized === 'ikhwan') return 'Ikhwan';
+  if (normalized === 'akhwat') return 'Akhwat';
+  return null;
+}
+
+export function validateRoleSpecificUserFields(params: {
+  role: SimsUser['role'];
+  subject?: string;
+  studentGroup?: string;
+}):
+  | { valid: true; cleanSubject?: string; studentGroup?: StudentGroup }
+  | { valid: false; error: string } {
+  if (params.role === 'Guru') {
+    const cleanSubject = (params.subject ?? '').trim();
+    if (!cleanSubject) {
+      return { valid: false, error: 'Mata pelajaran wajib diisi untuk akun Guru.' };
+    }
+    if (cleanSubject.length > 100) {
+      return { valid: false, error: 'Nama mata pelajaran maksimal 100 karakter.' };
+    }
+    return { valid: true, cleanSubject };
+  }
+
+  if (params.role === 'Siswa') {
+    const normalized = normalizeStudentGroup(params.studentGroup ?? '');
+    if (!normalized) {
+      return { valid: false, error: 'Pilih kategori siswa: Ikhwan atau Akhwat.' };
+    }
+    return { valid: true, studentGroup: normalized };
+  }
+
+  return { valid: true };
 }
 
 export function authenticateUser(
@@ -372,6 +412,8 @@ export function parseBulkUsersCsv(
   const usernameIdx = findCol(['username', 'user']);
   const passwordIdx = findCol(['password', 'kata sandi', 'sandi']);
   const roleIdx = findCol(['role', 'peran']);
+  const subjectIdx = findCol(['subject', 'mapel', 'mata pelajaran']);
+  const groupIdx = findCol(['group', 'kategori', 'jenis', 'gender', 'kelas', 'ikhwan/akhwat']);
 
   if (nameIdx === -1 || usernameIdx === -1 || passwordIdx === -1 || roleIdx === -1) {
     return {
@@ -443,6 +485,38 @@ export function parseBulkUsersCsv(
       continue;
     }
 
+    const rawSubject = subjectIdx !== -1 ? (row[subjectIdx] ?? '').trim() : '';
+    const rawGroup = groupIdx !== -1 ? (row[groupIdx] ?? '').trim() : '';
+
+    let cleanSubject: string | undefined;
+    let studentGroup: StudentGroup | undefined;
+
+    if (mappedRole === 'Guru' && subjectIdx !== -1) {
+      const roleCheck = validateRoleSpecificUserFields({ role: 'Guru', subject: rawSubject });
+      if (!roleCheck.valid) {
+        errors.push({
+          rowNumber,
+          username: validation.cleanUsername,
+          reason: roleCheck.error,
+        });
+        continue;
+      }
+      cleanSubject = roleCheck.cleanSubject;
+    }
+
+    if (mappedRole === 'Siswa' && groupIdx !== -1) {
+      const roleCheck = validateRoleSpecificUserFields({ role: 'Siswa', studentGroup: rawGroup });
+      if (!roleCheck.valid) {
+        errors.push({
+          rowNumber,
+          username: validation.cleanUsername,
+          reason: roleCheck.error,
+        });
+        continue;
+      }
+      studentGroup = roleCheck.studentGroup;
+    }
+
     seenUsernames.add(validation.cleanUsername);
     validUsers.push({
       id: baseId + validUsers.length + 1,
@@ -451,6 +525,8 @@ export function parseBulkUsersCsv(
       password: rawPassword,
       role: mappedRole,
       active: true,
+      ...(cleanSubject ? { subject: cleanSubject } : {}),
+      ...(studentGroup ? { student_group: studentGroup } : {}),
     });
   }
 
@@ -464,10 +540,10 @@ export function parseBulkUsersCsv(
 
 export function buildBulkUsersTemplateCsv(): string {
   return [
-    'Name,Username,Password,Role',
-    '"Budi Santoso",budi_siswa,siswa123,Siswa',
-    '"Siti Aminah",siti_siswa,siswa123,Siswa',
-    '"Ibu Sari",guru_sari,guru123,Guru',
+    'Name,Username,Password,Role,Subject,Group',
+    '"Budi Santoso",budi_siswa,siswa123,Siswa,,Ikhwan',
+    '"Siti Aminah",siti_siswa,siswa123,Siswa,,Akhwat',
+    '"Ibu Sari",guru_sari,guru123,Guru,Matematika,',
   ].join('\r\n');
 }
 

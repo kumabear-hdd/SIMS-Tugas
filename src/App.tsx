@@ -40,6 +40,7 @@ import { collection, doc, onSnapshot, setDoc, deleteDoc, getDocs, getDoc, writeB
 import {
   calculateAssignmentProgress,
   validateUserRegistration,
+  validateRoleSpecificUserFields,
   authenticateUser,
   buildAssignmentsCsvReport,
   buildVerificationUpdate,
@@ -52,6 +53,7 @@ import {
   serializeOfflineSnapshot,
   parseOfflineSnapshot,
   type SimsUser as User,
+  type StudentGroup,
   type SimsAssignment as Assignment,
   type SimsSubmission as Submission,
 } from './utils/simsLogic';
@@ -144,6 +146,7 @@ export default function App() {
   const [isSubmittingVerify, setIsSubmittingVerify] = useState<boolean>(false);
   const [addUserOpen, setAddUserOpen] = useState<boolean>(false);
   const [bulkImportOpen, setBulkImportOpen] = useState<boolean>(false);
+  const [userRoleFilter, setUserRoleFilter] = useState<'Semua' | 'Ikhwan' | 'Akhwat' | 'Guru' | 'Administrator'>('Semua');
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<User | null>(null);
   const [resetDataConfirmOpen, setResetDataConfirmOpen] = useState<boolean>(false);
 
@@ -1194,7 +1197,20 @@ export default function App() {
                             }`}
                           >
                             <div className="flex items-start justify-between gap-2">
-                              <div className="font-semibold text-white text-sm">{stUser?.name || 'Siswa'}</div>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="font-semibold text-white text-sm">{stUser?.name || 'Siswa'}</span>
+                                {stUser?.student_group && (
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                      stUser.student_group === 'Ikhwan'
+                                        ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                        : 'bg-pink-500/15 text-pink-300 border-pink-500/30'
+                                    }`}
+                                  >
+                                    {stUser.student_group}
+                                  </span>
+                                )}
+                              </div>
                               <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold shrink-0 ${
                                 s.status === 'Selesai' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
                                 s.status === 'Revisi' ? 'bg-rose-500/20 text-rose-300 border border-rose-500/30' :
@@ -1242,7 +1258,22 @@ export default function App() {
                                   (selectedSub?.id === s.id) ? 'bg-blue-600/10 border-l-4 border-blue-500' : ''
                                 }`}
                               >
-                                <td className="p-4 font-semibold text-white">{stUser?.name || 'Siswa'}</td>
+                                <td className="p-4 font-semibold text-white">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span>{stUser?.name || 'Siswa'}</span>
+                                    {stUser?.student_group && (
+                                      <span
+                                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                          stUser.student_group === 'Ikhwan'
+                                            ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                            : 'bg-pink-500/15 text-pink-300 border-pink-500/30'
+                                        }`}
+                                      >
+                                        {stUser.student_group}
+                                      </span>
+                                    )}
+                                  </div>
+                                </td>
                                 <td className="p-4 text-slate-300 truncate max-w-[200px]">{asg?.title || '-'}</td>
                                 <td className="p-4 text-slate-400 text-xs">{formatWib(s.submitted_at)}</td>
                                 <td className="p-4">
@@ -1271,7 +1302,21 @@ export default function App() {
                           <img src={selectedSub.photo_data} alt="Bukti Tugas" className="max-h-full max-w-full object-contain" />
                         </div>
                         <div className="space-y-2 text-sm bg-slate-950/50 p-4 rounded-xl border border-slate-800">
-                          <div><strong className="text-white">Siswa:</strong> {studentWhoSubmitted.name}</div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <strong className="text-white">Siswa:</strong>{' '}
+                            <span>{studentWhoSubmitted.name}</span>
+                            {studentWhoSubmitted.student_group && (
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                                  studentWhoSubmitted.student_group === 'Ikhwan'
+                                    ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                    : 'bg-pink-500/15 text-pink-300 border-pink-500/30'
+                                }`}
+                              >
+                                {studentWhoSubmitted.student_group}
+                              </span>
+                            )}
+                          </div>
                           <div><strong className="text-white">Tugas:</strong> {selectedAssignment.title}</div>
                           <div><strong className="text-white">Waktu:</strong> {formatWib(selectedSub.submitted_at)} {selectedSub.is_late ? <span className="text-rose-400 font-semibold">(Terlambat)</span> : <span className="text-emerald-400">(Tepat waktu)</span>}</div>
                           {selectedSub.note && <div><strong className="text-white">Catatan Siswa:</strong> {selectedSub.note}</div>}
@@ -1790,130 +1835,136 @@ export default function App() {
           )}
 
           {/* TAB 5: PENGGUNA (ADMINISTRATOR) */}
-          {activeTab === 'pengguna' && currentUser.role === 'Administrator' && (
-            <div className="space-y-6 max-w-5xl mx-auto">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-                <div>
-                  <h2 className="text-xl font-bold text-white">Manajemen Pengguna</h2>
-                  <p className="text-sm text-slate-400 mt-1">Tambahkan akun Siswa, Guru, atau Administrator baru untuk masuk menggunakan Username &amp; Kata Sandi.</p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3 shrink-0">
-                  <button
-                    onClick={() => setResetDataConfirmOpen(true)}
-                    className="px-4 py-2.5 bg-rose-600/15 hover:bg-rose-600/25 text-rose-300 border border-rose-500/30 rounded-xl font-semibold text-sm flex items-center gap-2 transition whitespace-nowrap"
-                  >
-                    <RotateCcw className="w-4 h-4 shrink-0" />
-                    <span>Kosongkan Data</span>
-                  </button>
-                  <button
-                    onClick={() => setBulkImportOpen(true)}
-                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl font-semibold text-sm flex items-center gap-2 transition whitespace-nowrap"
-                  >
-                    <Upload className="w-4 h-4 shrink-0" />
-                    <span>Bulk Import Users</span>
-                  </button>
-                  <button
-                    onClick={() => setAddUserOpen(true)}
-                    className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold text-sm flex items-center gap-2 shadow-lg shadow-blue-600/30 transition whitespace-nowrap"
-                  >
-                    <Plus className="w-4 h-4 shrink-0" />
-                    <span>Tambah Pengguna</span>
-                  </button>
-                </div>
-              </div>
+          {activeTab === 'pengguna' && currentUser.role === 'Administrator' && (() => {
+            const filteredUsers = users.filter((u) => {
+              if (userRoleFilter === 'Semua') return true;
+              if (userRoleFilter === 'Ikhwan') return u.role === 'Siswa' && u.student_group === 'Ikhwan';
+              if (userRoleFilter === 'Akhwat') return u.role === 'Siswa' && u.student_group === 'Akhwat';
+              if (userRoleFilter === 'Guru') return u.role === 'Guru';
+              if (userRoleFilter === 'Administrator') return u.role === 'Administrator';
+              return true;
+            });
 
-              {/* Mobile User Cards */}
-              <div className="md:hidden space-y-3">
-                {users.map((u) => (
-                  <div key={u.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-white text-sm">
-                          {u.name}{' '}
-                          {u.id === currentUser.id && <span className="text-xs text-blue-400 font-normal">(Anda)</span>}
-                        </div>
-                        <div className="text-xs text-slate-400 font-mono">@{u.username}</div>
-                      </div>
-                      <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 ${
-                        u.role === 'Administrator' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
-                        u.role === 'Guru' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                        'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                      }`}>
-                        {u.role}
-                      </span>
-                    </div>
+            const filterCounts = {
+              Semua: users.length,
+              Ikhwan: users.filter((u) => u.role === 'Siswa' && u.student_group === 'Ikhwan').length,
+              Akhwat: users.filter((u) => u.role === 'Siswa' && u.student_group === 'Akhwat').length,
+              Guru: users.filter((u) => u.role === 'Guru').length,
+              Administrator: users.filter((u) => u.role === 'Administrator').length,
+            };
 
-                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/70">
-                      <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
-                        {u.active ? 'Aktif' : 'Nonaktif'}
-                      </span>
-                      {u.id !== currentUser.id && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={async () => {
-                              const updated = { ...u, active: !u.active };
-                              const { queuedOffline } = await commitFirestoreWrite(
-                                setDoc(doc(db, 'users', String(u.id)), updated),
-                                OperationType.UPDATE,
-                                `users/${u.id}`
-                              );
-                              addToast('Status Diperbarui', queuedOffline ? `Akun ${u.name} disimpan offline` : `Akun ${u.name} diubah`, 'info');
-                            }}
-                            className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
-                          >
-                            {u.active ? 'Nonaktifkan' : 'Aktifkan'}
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirmUser(u)}
-                            className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-medium transition inline-flex items-center gap-1"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" /> Hapus
-                          </button>
-                        </div>
-                      )}
-                    </div>
+            return (
+              <div className="space-y-6 max-w-5xl mx-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-900 border border-slate-800 p-6 rounded-2xl">
+                  <div>
+                    <h2 className="text-xl font-bold text-white">Manajemen Pengguna</h2>
+                    <p className="text-sm text-slate-400 mt-1">Tambahkan akun Siswa (Ikhwan / Akhwat), Guru (beserta mata pelajaran), atau Administrator.</p>
                   </div>
-                ))}
-              </div>
+                  <div className="flex flex-wrap items-center gap-3 shrink-0">
+                    <button
+                      onClick={() => setResetDataConfirmOpen(true)}
+                      className="px-4 py-2.5 bg-rose-600/15 hover:bg-rose-600/25 text-rose-300 border border-rose-500/30 rounded-xl font-semibold text-sm flex items-center gap-2 transition whitespace-nowrap"
+                    >
+                      <RotateCcw className="w-4 h-4 shrink-0" />
+                      <span>Kosongkan Data</span>
+                    </button>
+                    <button
+                      onClick={() => setBulkImportOpen(true)}
+                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl font-semibold text-sm flex items-center gap-2 transition whitespace-nowrap"
+                    >
+                      <Upload className="w-4 h-4 shrink-0" />
+                      <span>Bulk Import Users</span>
+                    </button>
+                    <button
+                      onClick={() => setAddUserOpen(true)}
+                      className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl font-semibold text-sm flex items-center gap-2 shadow-lg shadow-blue-600/30 transition whitespace-nowrap"
+                    >
+                      <Plus className="w-4 h-4 shrink-0" />
+                      <span>Tambah Pengguna</span>
+                    </button>
+                  </div>
+                </div>
 
-              {/* Desktop Users Table */}
-              <div className="hidden md:block bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider bg-slate-900/50">
-                      <th className="p-4 font-semibold">Nama &amp; Username</th>
-                      <th className="p-4 font-semibold">Peran</th>
-                      <th className="p-4 font-semibold">Status</th>
-                      <th className="p-4 font-semibold text-right">Aksi</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-800/60 text-sm">
-                    {users.map((u) => (
-                      <tr key={u.id} className="hover:bg-slate-800/50 transition">
-                        <td className="p-4">
-                          <div className="font-semibold text-white">
-                            {u.name}{' '}
-                            {u.id === currentUser.id && <span className="text-xs text-blue-400 font-normal">(Anda)</span>}
+                {/* Filter Peran & Kategori Siswa */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {(
+                    [
+                      { key: 'Semua', label: 'Semua' },
+                      { key: 'Ikhwan', label: 'Siswa Ikhwan' },
+                      { key: 'Akhwat', label: 'Siswa Akhwat' },
+                      { key: 'Guru', label: 'Guru' },
+                      { key: 'Administrator', label: 'Administrator' },
+                    ] as const
+                  ).map((item) => {
+                    const active = userRoleFilter === item.key;
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => setUserRoleFilter(item.key)}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition flex items-center gap-1.5 ${
+                          active
+                            ? 'bg-blue-600/20 text-blue-200 border-blue-500/50'
+                            : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border-slate-800'
+                        }`}
+                      >
+                        <span>{item.label}</span>
+                        <span className="px-1.5 py-0.5 rounded-md bg-slate-800 text-slate-300 text-[11px]">
+                          {filterCounts[item.key]}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Mobile User Cards */}
+                <div className="md:hidden space-y-3">
+                  {filteredUsers.length === 0 ? (
+                    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-center text-sm text-slate-500">
+                      Belum ada pengguna pada kategori ini.
+                    </div>
+                  ) : (
+                    filteredUsers.map((u) => (
+                      <div key={u.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-white text-sm">
+                              {u.name}{' '}
+                              {u.id === currentUser.id && <span className="text-xs text-blue-400 font-normal">(Anda)</span>}
+                            </div>
+                            <div className="text-xs text-slate-400 font-mono">@{u.username}</div>
                           </div>
-                          <div className="text-xs text-slate-400 font-mono">@{u.username}</div>
-                        </td>
-                        <td className="p-4">
-                          <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
-                            u.role === 'Administrator' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
-                            u.role === 'Guru' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                            'bg-blue-500/20 text-blue-300 border border-blue-500/30'
-                          }`}>
-                            {u.role}
-                          </span>
-                        </td>
-                        <td className="p-4">
+                          <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0">
+                            <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold ${
+                              u.role === 'Administrator' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                              u.role === 'Guru' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                              'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                            }`}>
+                              {u.role}
+                            </span>
+                            {u.role === 'Guru' && u.subject && (
+                              <span className="px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-950/60 text-emerald-200 border border-emerald-500/30">
+                                Mapel: {u.subject}
+                              </span>
+                            )}
+                            {u.role === 'Siswa' && u.student_group && (
+                              <span className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border ${
+                                u.student_group === 'Ikhwan'
+                                  ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                  : 'bg-pink-500/15 text-pink-300 border-pink-500/30'
+                              }`}>
+                                {u.student_group}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/70">
                           <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
                             {u.active ? 'Aktif' : 'Nonaktif'}
                           </span>
-                        </td>
-                        <td className="p-4 text-right space-x-2 whitespace-nowrap">
                           {u.id !== currentUser.id && (
-                            <>
+                            <div className="flex items-center gap-2">
                               <button
                                 onClick={async () => {
                                   const updated = { ...u, active: !u.active };
@@ -1934,16 +1985,107 @@ export default function App() {
                               >
                                 <Trash2 className="w-3.5 h-3.5" /> Hapus
                               </button>
-                            </>
+                            </div>
                           )}
-                        </td>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                {/* Desktop Users Table */}
+                <div className="hidden md:block bg-slate-900 border border-slate-800 rounded-2xl overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-slate-800 text-slate-400 text-xs uppercase tracking-wider bg-slate-900/50">
+                        <th className="p-4 font-semibold">Nama &amp; Username</th>
+                        <th className="p-4 font-semibold">Peran &amp; Keterangan</th>
+                        <th className="p-4 font-semibold">Status</th>
+                        <th className="p-4 font-semibold text-right">Aksi</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 text-sm">
+                      {filteredUsers.length === 0 ? (
+                        <tr>
+                          <td colSpan={4} className="p-8 text-center text-slate-500">
+                            Belum ada pengguna pada kategori ini.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredUsers.map((u) => (
+                          <tr key={u.id} className="hover:bg-slate-800/50 transition">
+                            <td className="p-4">
+                              <div className="font-semibold text-white">
+                                {u.name}{' '}
+                                {u.id === currentUser.id && <span className="text-xs text-blue-400 font-normal">(Anda)</span>}
+                              </div>
+                              <div className="text-xs text-slate-400 font-mono">@{u.username}</div>
+                            </td>
+                            <td className="p-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${
+                                  u.role === 'Administrator' ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' :
+                                  u.role === 'Guru' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
+                                  'bg-blue-500/20 text-blue-300 border border-blue-500/30'
+                                }`}>
+                                  {u.role}
+                                </span>
+                                {u.role === 'Guru' && u.subject && (
+                                  <span className="px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-950/60 text-emerald-200 border border-emerald-500/30">
+                                    Mapel: {u.subject}
+                                  </span>
+                                )}
+                                {u.role === 'Siswa' && u.student_group && (
+                                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold border ${
+                                    u.student_group === 'Ikhwan'
+                                      ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                                      : 'bg-pink-500/15 text-pink-300 border-pink-500/30'
+                                  }`}>
+                                    {u.student_group}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="p-4">
+                              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold ${u.active ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-800 text-slate-400'}`}>
+                                {u.active ? 'Aktif' : 'Nonaktif'}
+                              </span>
+                            </td>
+                            <td className="p-4 text-right space-x-2 whitespace-nowrap">
+                              {u.id !== currentUser.id && (
+                                <>
+                                  <button
+                                    onClick={async () => {
+                                      const updated = { ...u, active: !u.active };
+                                      const { queuedOffline } = await commitFirestoreWrite(
+                                        setDoc(doc(db, 'users', String(u.id)), updated),
+                                        OperationType.UPDATE,
+                                        `users/${u.id}`
+                                      );
+                                      addToast('Status Diperbarui', queuedOffline ? `Akun ${u.name} disimpan offline` : `Akun ${u.name} diubah`, 'info');
+                                    }}
+                                    className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-medium transition"
+                                  >
+                                    {u.active ? 'Nonaktifkan' : 'Aktifkan'}
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirmUser(u)}
+                                    className="px-3 py-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 rounded-lg text-xs font-medium transition inline-flex items-center gap-1"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" /> Hapus
+                                  </button>
+                                </>
+                              )}
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* TAB 6: NOTIFIKASI */}
           {activeTab === 'notifikasi' && (
@@ -2149,6 +2291,7 @@ export default function App() {
       {editTaskModalData !== null && (
         <AssignmentEditModal
           task={editTaskModalData === 'new' ? null : editTaskModalData}
+          defaultSubject={currentUser.role === 'Guru' ? currentUser.subject || '' : ''}
           onClose={() => setEditTaskModalData(null)}
           onSave={async (payload) => {
             if (editTaskModalData === 'new') {
@@ -2208,9 +2351,15 @@ export default function App() {
               `users/${newUser.id}`
             );
             setAddUserOpen(false);
+            const detailSuffix =
+              newUser.role === 'Guru' && newUser.subject
+                ? ` • Mapel: ${newUser.subject}`
+                : newUser.role === 'Siswa' && newUser.student_group
+                ? ` • ${newUser.student_group}`
+                : '';
             addToast(
               queuedOffline ? 'Pengguna Disimpan Offline' : 'Pengguna Ditambahkan',
-              `${newUser.name} (@${newUser.username})`,
+              `${newUser.name} (@${newUser.username}${detailSuffix})`,
               queuedOffline ? 'warning' : 'success'
             );
           }}
@@ -2391,7 +2540,21 @@ export default function App() {
                   : 'Periksa kembali detail pengumpulan dan catatan sebelum meminta revisi:'}
               </p>
               <div className="bg-slate-950/60 border border-slate-800 rounded-xl p-3.5 space-y-1.5">
-                <div><span className="text-slate-400">Siswa:</span> <strong className="text-white">{verifyConfirmModal.student.name}</strong></div>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-slate-400">Siswa:</span>{' '}
+                  <strong className="text-white">{verifyConfirmModal.student.name}</strong>
+                  {verifyConfirmModal.student.student_group && (
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border ${
+                        verifyConfirmModal.student.student_group === 'Ikhwan'
+                          ? 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+                          : 'bg-pink-500/15 text-pink-300 border-pink-500/30'
+                      }`}
+                    >
+                      {verifyConfirmModal.student.student_group}
+                    </span>
+                  )}
+                </div>
                 <div><span className="text-slate-400">Tugas:</span> <strong className="text-white">{verifyConfirmModal.assignment.title}</strong></div>
                 <div>
                   <span className="text-slate-400">Waktu Kumpul:</span>{' '}
@@ -2618,9 +2781,19 @@ function SubmissionUploadBox({ assignmentId, deadline, studentId, onSubmitted, o
 }
 
 // --- SUB-COMPONENT: ASSIGNMENT EDIT MODAL ---
-function AssignmentEditModal({ task, onClose, onSave }: { task: Assignment | null; onClose: () => void; onSave: (payload: any) => void }) {
+function AssignmentEditModal({
+  task,
+  defaultSubject = '',
+  onClose,
+  onSave,
+}: {
+  task: Assignment | null;
+  defaultSubject?: string;
+  onClose: () => void;
+  onSave: (payload: any) => void;
+}) {
   const [title, setTitle] = useState(task?.title || '');
-  const [subject, setSubject] = useState(task?.subject || '');
+  const [subject, setSubject] = useState(task?.subject || defaultSubject);
   const [description, setDescription] = useState(task?.description || '');
   const [status, setStatus] = useState<'Aktif' | 'Ditutup'>(task?.status || 'Aktif');
 
@@ -2739,19 +2912,27 @@ function AddUserModal({
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'Siswa' | 'Guru' | 'Administrator'>('Siswa');
+  const [subject, setSubject] = useState('');
+  const [studentGroup, setStudentGroup] = useState<'' | StudentGroup>('');
   const [formError, setFormError] = useState('');
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full max-h-[90dvh] overflow-y-auto p-5 sm:p-6 shadow-2xl space-y-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="add-user-modal-title"
+      className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4"
+    >
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto p-5 sm:p-6 shadow-2xl space-y-4">
         <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-          <h3 className="text-lg font-bold text-white">Tambah Pengguna</h3>
+          <h3 id="add-user-modal-title" className="text-lg font-bold text-white">Tambah Pengguna</h3>
           <button aria-label="Tutup" onClick={onClose} className="text-slate-400 hover:text-white"><X className="w-5 h-5" /></button>
         </div>
 
         {formError && (
-          <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs">
-            {formError}
+          <div className="p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{formError}</span>
           </div>
         )}
 
@@ -2797,7 +2978,11 @@ function AddUserModal({
             <select
               id="add-user-role"
               value={role}
-              onChange={(e) => setRole(e.target.value as 'Siswa' | 'Guru' | 'Administrator')}
+              onChange={(e) => {
+                const nextRole = e.target.value as 'Siswa' | 'Guru' | 'Administrator';
+                setRole(nextRole);
+                setFormError('');
+              }}
               className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-sm text-white outline-none focus:border-blue-500"
             >
               <option value="Siswa">Siswa</option>
@@ -2805,6 +2990,67 @@ function AddUserModal({
               <option value="Administrator">Administrator</option>
             </select>
           </div>
+
+          {role === 'Guru' && (
+            <div>
+              <label htmlFor="add-user-subject" className="text-xs font-semibold text-emerald-300 uppercase tracking-wider mb-1 block">
+                Mata Pelajaran (Guru)
+              </label>
+              <input
+                id="add-user-subject"
+                type="text"
+                maxLength={100}
+                placeholder="Contoh: Matematika, IPA, Tahfidz"
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                className="w-full bg-slate-950 border border-emerald-500/40 rounded-xl p-3 text-sm text-white outline-none focus:border-emerald-400"
+                required
+              />
+            </div>
+          )}
+
+          {role === 'Siswa' && (
+            <div className="space-y-1.5">
+              <div className="text-xs font-semibold text-blue-300 uppercase tracking-wider">
+                Kategori Siswa (Ikhwan / Akhwat)
+              </div>
+              <div className="grid grid-cols-2 gap-2.5" role="group" aria-label="Pilih Kategori Siswa">
+                <button
+                  type="button"
+                  aria-pressed={studentGroup === 'Ikhwan'}
+                  onClick={() => {
+                    setStudentGroup('Ikhwan');
+                    setFormError('');
+                  }}
+                  className={`p-3 rounded-xl border text-sm font-semibold transition flex items-center justify-center gap-2 ${
+                    studentGroup === 'Ikhwan'
+                      ? 'bg-cyan-500/20 border-cyan-400 text-cyan-200 shadow-sm shadow-cyan-500/20'
+                      : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                  }`}
+                >
+                  <span>Ikhwan</span>
+                </button>
+                <button
+                  type="button"
+                  aria-pressed={studentGroup === 'Akhwat'}
+                  onClick={() => {
+                    setStudentGroup('Akhwat');
+                    setFormError('');
+                  }}
+                  className={`p-3 rounded-xl border text-sm font-semibold transition flex items-center justify-center gap-2 ${
+                    studentGroup === 'Akhwat'
+                      ? 'bg-pink-500/20 border-pink-400 text-pink-200 shadow-sm shadow-pink-500/20'
+                      : 'bg-slate-950 border-slate-800 text-slate-300 hover:border-slate-700'
+                  }`}
+                >
+                  <span>Akhwat</span>
+                </button>
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Sekolah memisahkan rombongan belajar antara siswa Ikhwan dan Akhwat.
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 pt-2">
@@ -2822,13 +3068,24 @@ function AddUserModal({
                 setFormError(validation.error);
                 return;
               }
+              const roleValidation = validateRoleSpecificUserFields({
+                role,
+                subject,
+                studentGroup,
+              });
+              if (!roleValidation.valid) {
+                setFormError(roleValidation.error);
+                return;
+              }
               onAdd({
                 id: Date.now(),
                 name: validation.cleanName,
                 username: validation.cleanUsername,
                 role,
                 active: true,
-                password
+                password,
+                ...(roleValidation.cleanSubject ? { subject: roleValidation.cleanSubject } : {}),
+                ...(roleValidation.studentGroup ? { student_group: roleValidation.studentGroup } : {}),
               });
             }}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-sm font-semibold transition shadow-lg shadow-blue-600/30"

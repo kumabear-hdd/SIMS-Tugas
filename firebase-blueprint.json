@@ -10,7 +10,9 @@
         "name": { "type": "string", "maxLength": 100 },
         "role": { "type": "string", "enum": ["Siswa", "Guru", "Administrator"] },
         "active": { "type": "boolean" },
-        "password": { "type": "string", "maxLength": 100 }
+        "password": { "type": "string", "maxLength": 100 },
+        "subject": { "type": "string", "maxLength": 100 },
+        "student_group": { "type": "string", "enum": ["Ikhwan", "Akhwat"] }
       },
       "required": ["id", "username", "name", "role", "active"]
     },

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   calculateAssignmentProgress,
   validateUserRegistration,
+  validateRoleSpecificUserFields,
   authenticateUser,
   buildAssignmentsCsvReport,
   buildVerificationUpdate,
@@ -328,6 +329,56 @@ test('buildBulkUsersTemplateCsv provides required header columns and parseable s
   if (parsed.ok) {
     assert.equal(parsed.validUsers.length, 3);
     assert.equal(parsed.errors.length, 0);
+    assert.equal(parsed.validUsers[0].student_group, 'Ikhwan');
+    assert.equal(parsed.validUsers[1].student_group, 'Akhwat');
+    assert.equal(parsed.validUsers[2].subject, 'Matematika');
+  }
+});
+
+test('validateRoleSpecificUserFields enforces subject for Guru and Ikhwan/Akhwat for Siswa', () => {
+  const guruMissing = validateRoleSpecificUserFields({ role: 'Guru', subject: '   ' });
+  assert.equal(guruMissing.valid, false);
+
+  const guruOk = validateRoleSpecificUserFields({ role: 'Guru', subject: '  Bahasa Arab  ' });
+  assert.deepEqual(guruOk, { valid: true, cleanSubject: 'Bahasa Arab' });
+
+  const siswaMissing = validateRoleSpecificUserFields({ role: 'Siswa', studentGroup: '' });
+  assert.equal(siswaMissing.valid, false);
+
+  const siswaInvalid = validateRoleSpecificUserFields({ role: 'Siswa', studentGroup: 'Umum' });
+  assert.equal(siswaInvalid.valid, false);
+
+  const siswaIkhwan = validateRoleSpecificUserFields({ role: 'Siswa', studentGroup: 'ikhwan' });
+  assert.deepEqual(siswaIkhwan, { valid: true, studentGroup: 'Ikhwan' });
+
+  const siswaAkhwat = validateRoleSpecificUserFields({ role: 'Siswa', studentGroup: 'Akhwat' });
+  assert.deepEqual(siswaAkhwat, { valid: true, studentGroup: 'Akhwat' });
+
+  const adminOk = validateRoleSpecificUserFields({ role: 'Administrator' });
+  assert.deepEqual(adminOk, { valid: true });
+});
+
+test('parseBulkUsersCsv validates Subject for Guru and Ikhwan/Akhwat Group for Siswa when columns exist', () => {
+  const csv = [
+    'Name,Username,Password,Role,Subject,Group',
+    '"Ahmad Fauzi",ahmad_s,pass123,Siswa,,ikhwan',
+    '"Aisyah Putri",aisyah_s,pass123,Siswa,,Akhwat',
+    '"Ustadz Ali",ali_guru,pass123,Guru,Tahfidz,',
+    '"Guru Tanpa Mapel",nomapel_g,pass123,Guru,,',
+    '"Siswa Tanpa Kategori",nogroup_s,pass123,Siswa,,',
+    '"Siswa Kategori Salah",badgroup_s,pass123,Siswa,,Campur',
+  ].join('\n');
+
+  const res = parseBulkUsersCsv(csv, [], 9000);
+  assert.equal(res.ok, true);
+  if (res.ok) {
+    assert.equal(res.validUsers.length, 3);
+    assert.equal(res.errors.length, 3);
+    assert.equal(res.validUsers[0].student_group, 'Ikhwan');
+    assert.equal(res.validUsers[1].student_group, 'Akhwat');
+    assert.equal(res.validUsers[2].subject, 'Tahfidz');
+    assert.equal('subject' in res.validUsers[0], false);
+    assert.equal('student_group' in res.validUsers[2], false);
   }
 });
 
