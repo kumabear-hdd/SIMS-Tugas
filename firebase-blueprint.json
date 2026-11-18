@@ -1,0 +1,101 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Akun pengguna SIMS Tugas (Administrator, Guru, atau Siswa)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "username": { "type": "string", "maxLength": 50 },
+        "name": { "type": "string", "maxLength": 100 },
+        "role": { "type": "string", "enum": ["Siswa", "Guru", "Administrator"] },
+        "active": { "type": "boolean" },
+        "password": { "type": "string", "maxLength": 100 }
+      },
+      "required": ["id", "username", "name", "role", "active"]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "Tugas sekolah yang dibuat oleh Guru atau Administrator",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "title": { "type": "string", "maxLength": 200 },
+        "subject": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "deadline": { "type": "string" },
+        "status": { "type": "string", "enum": ["Aktif", "Ditutup"] },
+        "created_by": { "type": "number" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "title", "deadline", "status"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Pengumpulan bukti foto tugas siswa beserta status verifikasi",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "assignment_id": { "type": "number" },
+        "student_id": { "type": "number" },
+        "photo_data": { "type": "string" },
+        "photo_sha256": { "type": "string", "maxLength": 64 },
+        "note": { "type": "string", "maxLength": 500 },
+        "submitted_at": { "type": "string" },
+        "is_late": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["Menunggu", "Revisi", "Selesai"] },
+        "revision_count": { "type": "number" },
+        "feedback": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["id", "assignment_id", "student_id", "status"]
+    },
+    "NotificationItem": {
+      "title": "NotificationItem",
+      "description": "Notifikasi aktivitas tugas dan verifikasi untuk pengguna",
+      "type": "object",
+      "properties": {
+        "id": { "type": "number" },
+        "user_id": { "type": "number" },
+        "type": { "type": "string", "maxLength": 50 },
+        "title": { "type": "string", "maxLength": 150 },
+        "message": { "type": "string", "maxLength": 500 },
+        "assignment_id": { "type": "number" },
+        "is_read": { "type": "boolean" },
+        "created_at": { "type": "string" }
+      },
+      "required": ["id", "user_id", "title", "is_read"]
+    },
+    "AppMeta": {
+      "title": "AppMeta",
+      "description": "Status inisialisasi dan konfigurasi aplikasi",
+      "type": "object",
+      "properties": {
+        "initialized": { "type": "boolean" },
+        "resetAt": { "type": "string" }
+      },
+      "required": ["initialized"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Koleksi akun pengguna SIMS Tugas"
+    },
+    "/assignments/{assignmentId}": {
+      "schema": { "$ref": "#/entities/Assignment" },
+      "description": "Koleksi daftar tugas sekolah"
+    },
+    "/submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/Submission" },
+      "description": "Koleksi pengumpulan tugas siswa"
+    },
+    "/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/NotificationItem" },
+      "description": "Koleksi notifikasi pengguna"
+    },
+    "/meta/{docId}": {
+      "schema": { "$ref": "#/entities/AppMeta" },
+      "description": "Metadata inisialisasi aplikasi"
+    }
+  }
+}

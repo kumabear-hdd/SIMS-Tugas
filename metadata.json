@@ -1,0 +1,6 @@
+{
+  "name": "SIMS - Sistem Manajemen Tugas Siswa",
+  "description": "Sistem Manajemen Tugas Siswa untuk pengelolaan tugas, pengumpulan bukti foto, verifikasi guru, dan notifikasi real-time.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
