@@ -716,4 +716,89 @@ export function parseOfflineSnapshot(raw: string | null): OfflineSnapshotData | 
   }
 }
 
+export interface SimsNotification {
+  id: number;
+  user_id: number;
+  type: string;
+  title: string;
+  message: string;
+  assignment_id?: number;
+  is_read: boolean;
+  created_at: string;
+}
+
+export function findNewUnreadNotificationPopups(params: {
+  notifications: SimsNotification[];
+  currentUserId: number;
+  seenIds: Iterable<number>;
+  hasInitializedBaseline: boolean;
+  maxPopupsPerBatch?: number;
+}): {
+  toPopup: SimsNotification[];
+  nextSeenIds: Set<number>;
+  nextHasInitializedBaseline: boolean;
+} {
+  const nextSeenIds = new Set<number>(params.seenIds);
+  const userNotifs = params.notifications.filter((n) => n.user_id === params.currentUserId);
+
+  if (!params.hasInitializedBaseline) {
+    for (const n of userNotifs) {
+      nextSeenIds.add(n.id);
+    }
+    return {
+      toPopup: [],
+      nextSeenIds,
+      nextHasInitializedBaseline: true,
+    };
+  }
+
+  const newlyArrivedUnread = userNotifs
+    .filter((n) => !n.is_read && !nextSeenIds.has(n.id))
+    .sort((a, b) => a.id - b.id);
+
+  for (const n of userNotifs) {
+    nextSeenIds.add(n.id);
+  }
+
+  const maxBatch = params.maxPopupsPerBatch ?? 3;
+  const toPopup =
+    newlyArrivedUnread.length > maxBatch
+      ? newlyArrivedUnread.slice(newlyArrivedUnread.length - maxBatch)
+      : newlyArrivedUnread;
+
+  return {
+    toPopup,
+    nextSeenIds,
+    nextHasInitializedBaseline: true,
+  };
+}
+
+export type NotificationPermissionState = 'granted' | 'denied' | 'default' | 'unsupported';
+
+export function shouldTriggerPwaAlerts(params: {
+  isStandalone: boolean;
+  permission: NotificationPermissionState;
+  soundEnabled: boolean;
+  browserOptIn: boolean;
+}): {
+  eligible: boolean;
+  allowPopup: boolean;
+  allowSound: boolean;
+} {
+  const eligible = params.isStandalone || params.browserOptIn;
+  if (!eligible) {
+    return {
+      eligible: false,
+      allowPopup: false,
+      allowSound: false,
+    };
+  }
+  return {
+    eligible: true,
+    allowPopup: params.permission === 'granted',
+    allowSound: params.soundEnabled,
+  };
+}
+
+
 

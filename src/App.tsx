@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   GraduationCap,
   ClipboardList,
@@ -12,6 +12,7 @@ import {
   CalendarClock,
   FileText,
   Bell,
+  BellRing,
   Plus,
   Pencil,
   Trash2,
@@ -33,7 +34,10 @@ import {
   Search,
   UserPlus,
   Upload,
-  Calendar
+  Calendar,
+  Volume2,
+  VolumeX,
+  Smartphone
 } from 'lucide-react';
 import { db, testConnection, handleFirestoreError, commitFirestoreWrite, OperationType } from './firebase';
 import { collection, doc, onSnapshot, setDoc, deleteDoc, getDocs, getDoc, writeBatch } from 'firebase/firestore';
@@ -52,26 +56,29 @@ import {
   getNavigationTabsForRole,
   serializeOfflineSnapshot,
   parseOfflineSnapshot,
+  findNewUnreadNotificationPopups,
+  shouldTriggerPwaAlerts,
   type SimsUser as User,
   type StudentGroup,
   type SimsAssignment as Assignment,
   type SimsSubmission as Submission,
+  type SimsNotification as NotificationItem,
+  type NotificationPermissionState,
 } from './utils/simsLogic';
-import { PWAInstallButton, OfflineIndicator, OfflineBadge } from './components/PWAComponents';
+import {
+  detectStandalonePwa,
+  getNotificationPermissionSafe,
+  playNotificationChime,
+  requestPwaNotificationPermission,
+  showPwaScreenNotification,
+  unlockNotificationAudio,
+} from './utils/pwaNotifications';
+import { PWAInstallButton, OfflineIndicator, OfflineBadge, PWANotificationBanner } from './components/PWAComponents';
 import { BulkImportUsersModal } from './components/BulkImportUsersModal';
 
 const OFFLINE_SNAPSHOT_KEY = 'sims_offline_snapshot_v1';
-
-interface NotificationItem {
-  id: number;
-  user_id: number;
-  type: string;
-  title: string;
-  message: string;
-  assignment_id?: number;
-  is_read: boolean;
-  created_at: string;
-}
+const PWA_SOUND_ENABLED_KEY = 'sims_pwa_sound_enabled';
+const BROWSER_ALERTS_OPT_IN_KEY = 'sims_browser_alerts_opt_in';
 
 const TECHNICAL_BLUEPRINT = `# CETAK BIRU TEKNIS - SIMS Tugas (Firebase Cloud Firestore)
 
@@ -112,8 +119,23 @@ export default function App() {
     }
     return false;
   });
+  const [isNotifsLoaded, setIsNotifsLoaded] = useState<boolean>(false);
   const [hasPendingSync, setHasPendingSync] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string>('');
+  const [isStandalonePwa, setIsStandalonePwa] = useState<boolean>(() => detectStandalonePwa());
+  const [notifPermission, setNotifPermission] = useState<NotificationPermissionState>(() => getNotificationPermissionSafe());
+  const [pwaSoundEnabled, setPwaSoundEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem(PWA_SOUND_ENABLED_KEY);
+    return saved === null ? true : saved === 'true';
+  });
+  const [browserAlertsOptIn, setBrowserAlertsOptIn] = useState<boolean>(() => {
+    return localStorage.getItem(BROWSER_ALERTS_OPT_IN_KEY) === 'true';
+  });
+  const [pwaBannerDismissed, setPwaBannerDismissed] = useState<boolean>(false);
+
+  const seenNotifIdsRef = useRef<Set<number>>(new Set());
+  const notifBaselineInitializedRef = useRef<boolean>(false);
+  const prevNotifUserIdRef = useRef<number | null>(null);
 
   const [activeTab, setActiveTab] = useState<string>('tugas-saya');
   const [sideCollapsed, setSideCollapsed] = useState<boolean>(false);
@@ -271,8 +293,12 @@ export default function App() {
         snap.forEach((d) => list.push(d.data() as NotificationItem));
         list.sort((a, b) => b.id - a.id);
         setNotifications(list);
+        setIsNotifsLoaded(true);
       },
-      (error) => console.warn('Notifications snapshot warning:', error)
+      (error) => {
+        console.warn('Notifications snapshot warning:', error);
+        setIsNotifsLoaded(true);
+      }
     );
 
     return () => {
@@ -320,6 +346,95 @@ export default function App() {
     if (currentUser) localStorage.setItem('sims_current_user', JSON.stringify(currentUser));
     else localStorage.removeItem('sims_current_user');
   }, [currentUser]);
+
+  // Keep standalone PWA status & audio unlock synced
+  useEffect(() => {
+    const updateStandalone = () => setIsStandalonePwa(detectStandalonePwa());
+    updateStandalone();
+    window.addEventListener('appinstalled', updateStandalone);
+    const mq = window.matchMedia('(display-mode: standalone)');
+    mq.addEventListener?.('change', updateStandalone);
+
+    const handleFirstGesture = () => {
+      unlockNotificationAudio();
+    };
+    window.addEventListener('pointerdown', handleFirstGesture, { passive: true });
+    window.addEventListener('keydown', handleFirstGesture, { passive: true });
+
+    return () => {
+      window.removeEventListener('appinstalled', updateStandalone);
+      mq.removeEventListener?.('change', updateStandalone);
+      window.removeEventListener('pointerdown', handleFirstGesture);
+      window.removeEventListener('keydown', handleFirstGesture);
+    };
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(PWA_SOUND_ENABLED_KEY, String(pwaSoundEnabled));
+  }, [pwaSoundEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem(BROWSER_ALERTS_OPT_IN_KEY, String(browserAlertsOptIn));
+  }, [browserAlertsOptIn]);
+
+  // Trigger mobile screen popup & chime sound on newly arrived unread notifications (for installed PWA)
+  useEffect(() => {
+    if (!currentUser) {
+      prevNotifUserIdRef.current = null;
+      seenNotifIdsRef.current = new Set();
+      notifBaselineInitializedRef.current = false;
+      return;
+    }
+
+    if (prevNotifUserIdRef.current !== currentUser.id) {
+      prevNotifUserIdRef.current = currentUser.id;
+      seenNotifIdsRef.current = new Set();
+      notifBaselineInitializedRef.current = false;
+    }
+
+    if (!isNotifsLoaded) return;
+
+    const { toPopup, nextSeenIds, nextHasInitializedBaseline } = findNewUnreadNotificationPopups({
+      notifications,
+      currentUserId: currentUser.id,
+      seenIds: seenNotifIdsRef.current,
+      hasInitializedBaseline: notifBaselineInitializedRef.current,
+    });
+    seenNotifIdsRef.current = nextSeenIds;
+    notifBaselineInitializedRef.current = nextHasInitializedBaseline;
+
+    if (toPopup.length === 0) return;
+
+    const alertPolicy = shouldTriggerPwaAlerts({
+      isStandalone: isStandalonePwa,
+      permission: notifPermission,
+      soundEnabled: pwaSoundEnabled,
+      browserOptIn: browserAlertsOptIn,
+    });
+
+    if (!alertPolicy.eligible) return;
+
+    if (alertPolicy.allowSound) {
+      void playNotificationChime();
+    }
+
+    toPopup.forEach((n, index) => {
+      addToast(
+        n.title,
+        n.message,
+        n.type === 'revisi' ? 'warning' : n.type === 'terverifikasi' ? 'success' : 'info'
+      );
+      if (alertPolicy.allowPopup) {
+        setTimeout(() => {
+          void showPwaScreenNotification({
+            title: n.title,
+            body: n.message,
+            notificationId: n.id,
+          });
+        }, index * 250);
+      }
+    });
+  }, [notifications, isNotifsLoaded, currentUser?.id, isStandalonePwa, notifPermission, pwaSoundEnabled, browserAlertsOptIn]);
 
   // Set default tab on role switch
   useEffect(() => {
@@ -925,6 +1040,27 @@ export default function App() {
         </header>
 
         <div className="flex-1 p-4 sm:p-6 pb-24 md:pb-6 overflow-y-auto">
+          <PWANotificationBanner
+            isStandalone={isStandalonePwa}
+            permission={notifPermission}
+            dismissed={pwaBannerDismissed}
+            onDismiss={() => setPwaBannerDismissed(true)}
+            onEnable={async () => {
+              const res = await requestPwaNotificationPermission();
+              setNotifPermission(res);
+              if (res === 'granted') {
+                await playNotificationChime();
+                await showPwaScreenNotification({
+                  title: 'Notifikasi PWA Aktif',
+                  body: 'Notifikasi tugas baru dan hasil verifikasi kini akan muncul di layar HP Anda.',
+                  tag: 'sims-pwa-enabled',
+                });
+                addToast('Notifikasi PWA Aktif', 'Popup layar HP & suara notifikasi telah diaktifkan.', 'success');
+              } else if (res === 'denied') {
+                addToast('Izin Ditolak', 'Aktifkan izin notifikasi di pengaturan browser/HP untuk menampilkan popup.', 'warning');
+              }
+            }}
+          />
           {/* TAB 1: TUGAS SAYA (SISWA) */}
           {activeTab === 'tugas-saya' && currentUser.role === 'Siswa' && (() => {
             const studentTasks = assignments.map((a) => {
@@ -2112,6 +2248,160 @@ export default function App() {
                   <CheckCheck className="w-4 h-4" />
                   <span>Tandai Semua Dibaca</span>
                 </button>
+              </div>
+
+              {/* Pengaturan Popup Layar HP & Suara Notifikasi (Khusus PWA) */}
+              <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-5 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                      isStandalonePwa ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-800 text-slate-400'
+                    }`}>
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-sm sm:text-base font-bold text-white">Popup Layar HP &amp; Suara Notifikasi (PWA)</h3>
+                        <span className={`px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                          isStandalonePwa
+                            ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                            : 'bg-slate-800 text-slate-300 border-slate-700'
+                        }`}>
+                          {isStandalonePwa ? 'Aplikasi PWA Terpasang' : 'Mode Browser'}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                        {isStandalonePwa
+                          ? 'Popup notifikasi di layar HP dan bunyi notifikasi aktif otomatis untuk aplikasi PWA yang sudah dipasang.'
+                          : 'Fitur ini aktif otomatis bagi pengguna yang menginstal & membuka lewat aplikasi PWA di HP.'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {!isStandalonePwa && (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const next = !browserAlertsOptIn;
+                        setBrowserAlertsOptIn(next);
+                        if (next) {
+                          await unlockNotificationAudio();
+                          if (notifPermission === 'default') {
+                            const res = await requestPwaNotificationPermission();
+                            setNotifPermission(res);
+                          }
+                          addToast('Aktif di Browser Ini', 'Popup & suara notifikasi diaktifkan di browser ini.', 'success');
+                        } else {
+                          addToast('Dimatikan di Browser', 'Popup & suara kembali khusus mode aplikasi PWA.', 'info');
+                        }
+                      }}
+                      className={`px-3 py-2 rounded-xl text-xs font-semibold border transition shrink-0 ${
+                        browserAlertsOptIn
+                          ? 'bg-blue-600/20 text-blue-300 border-blue-500/40'
+                          : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border-slate-700'
+                      }`}
+                    >
+                      {browserAlertsOptIn ? 'Aktif di Browser Ini' : 'Aktifkan Juga di Browser'}
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2.5 pt-2 border-t border-slate-800/80">
+                  {notifPermission === 'granted' ? (
+                    <span className="px-3 py-2 rounded-xl text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 flex items-center gap-1.5">
+                      <BellRing className="w-4 h-4 shrink-0" />
+                      <span>Izin Popup Layar: Aktif</span>
+                    </span>
+                  ) : notifPermission === 'denied' ? (
+                    <span className="px-3 py-2 rounded-xl text-xs font-semibold bg-rose-500/15 text-rose-300 border border-rose-500/30 flex items-center gap-1.5">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      <span>Izin Popup Diblokir (buka Setelan HP/Browser)</span>
+                    </span>
+                  ) : notifPermission === 'unsupported' ? (
+                    <span className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-800 text-slate-400 border border-slate-700">
+                      Perangkat tidak mendukung Notification API
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        const res = await requestPwaNotificationPermission();
+                        setNotifPermission(res);
+                        if (res === 'granted') {
+                          await playNotificationChime();
+                          await showPwaScreenNotification({
+                            title: 'Popup Notifikasi Aktif',
+                            body: 'Notifikasi SIMS Tugas akan muncul di layar HP Anda.',
+                            tag: 'sims-notif-perm-ok',
+                          });
+                          addToast('Izin Diberikan', 'Popup notifikasi layar HP telah aktif.', 'success');
+                        } else if (res === 'denied') {
+                          addToast('Izin Ditolak', 'Silakan izinkan notifikasi dari pengaturan perangkat.', 'warning');
+                        }
+                      }}
+                      className="px-3.5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition shadow-md shadow-blue-600/20"
+                    >
+                      <BellRing className="w-4 h-4 shrink-0" />
+                      <span>Izinkan Popup Layar HP</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const next = !pwaSoundEnabled;
+                      setPwaSoundEnabled(next);
+                      if (next) {
+                        await unlockNotificationAudio();
+                        await playNotificationChime();
+                      }
+                    }}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-semibold border flex items-center gap-1.5 transition ${
+                      pwaSoundEnabled
+                        ? 'bg-emerald-500/15 text-emerald-200 border-emerald-500/30 hover:bg-emerald-500/25'
+                        : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                    }`}
+                  >
+                    {pwaSoundEnabled ? <Volume2 className="w-4 h-4 shrink-0" /> : <VolumeX className="w-4 h-4 shrink-0" />}
+                    <span>{pwaSoundEnabled ? 'Suara Notifikasi: Aktif' : 'Suara Notifikasi: Mati'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await unlockNotificationAudio();
+                      let perm = notifPermission;
+                      if (perm === 'default') {
+                        perm = await requestPwaNotificationPermission();
+                        setNotifPermission(perm);
+                      }
+                      if (pwaSoundEnabled) {
+                        await playNotificationChime();
+                      }
+                      const popped =
+                        perm === 'granted'
+                          ? await showPwaScreenNotification({
+                              title: 'Uji Notifikasi SIMS Tugas',
+                              body: 'Popup layar HP & bunyi notifikasi berfungsi dengan baik.',
+                              tag: `sims-test-${Date.now()}`,
+                            })
+                          : false;
+                      addToast(
+                        'Uji Notifikasi',
+                        popped
+                          ? 'Popup layar HP dan suara notifikasi diputar.'
+                          : pwaSoundEnabled
+                          ? 'Suara notifikasi diputar (izinkan notifikasi agar popup layar HP juga tampil).'
+                          : 'Notifikasi uji tampil di layar aplikasi.',
+                        'info'
+                      );
+                    }}
+                    className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-slate-100 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition"
+                  >
+                    <Bell className="w-4 h-4 shrink-0" />
+                    <span>Uji Popup &amp; Suara</span>
+                  </button>
+                </div>
               </div>
 
               <div className="space-y-3">

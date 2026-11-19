@@ -18,9 +18,12 @@ import {
   getNavigationTabsForRole,
   serializeOfflineSnapshot,
   parseOfflineSnapshot,
+  findNewUnreadNotificationPopups,
+  shouldTriggerPwaAlerts,
   type SimsUser,
   type SimsAssignment,
   type SimsSubmission,
+  type SimsNotification,
 } from './simsLogic';
 
 test('calculateAssignmentProgress computes submitted vs active students ratio', () => {
@@ -508,5 +511,150 @@ test('serializeOfflineSnapshot and parseOfflineSnapshot safely round-trip and re
   assert.equal(parseOfflineSnapshot(null), null);
   assert.equal(parseOfflineSnapshot('{bad json'), null);
   assert.equal(parseOfflineSnapshot('{"users":"bad"}'), null);
+});
+
+test('findNewUnreadNotificationPopups establishes baseline first and only emits newly arrived unread notifications', () => {
+  const initialNotifs: SimsNotification[] = [
+    {
+      id: 100,
+      user_id: 2,
+      type: 'tugas_baru',
+      title: 'Tugas Lama',
+      message: 'Sudah ada sebelumnya',
+      is_read: false,
+      created_at: '2026-11-18T01:00:00.000Z',
+    },
+    {
+      id: 101,
+      user_id: 3,
+      type: 'tugas_baru',
+      title: 'Untuk User Lain',
+      message: 'Bukan milik user 2',
+      is_read: false,
+      created_at: '2026-11-18T01:05:00.000Z',
+    },
+  ];
+
+  // Baseline load: must not trigger popups for pre-existing notifications
+  const baseline = findNewUnreadNotificationPopups({
+    notifications: initialNotifs,
+    currentUserId: 2,
+    seenIds: [],
+    hasInitializedBaseline: false,
+  });
+  assert.equal(baseline.nextHasInitializedBaseline, true);
+  assert.equal(baseline.toPopup.length, 0);
+  assert.ok(baseline.nextSeenIds.has(100));
+  assert.equal(baseline.nextSeenIds.has(101), false);
+
+  // Subsequent update with 2 new unread notifications (plus 1 read and 1 for another user)
+  const updatedNotifs: SimsNotification[] = [
+    ...initialNotifs,
+    {
+      id: 103,
+      user_id: 2,
+      type: 'revisi',
+      title: 'Perlu Revisi',
+      message: 'Foto buram',
+      is_read: false,
+      created_at: '2026-11-18T02:02:00.000Z',
+    },
+    {
+      id: 102,
+      user_id: 2,
+      type: 'tugas_baru',
+      title: 'Tugas Baru',
+      message: 'Kerjakan halaman 5',
+      is_read: false,
+      created_at: '2026-11-18T02:00:00.000Z',
+    },
+    {
+      id: 104,
+      user_id: 2,
+      type: 'terverifikasi',
+      title: 'Sudah Dibaca',
+      message: 'Selesai',
+      is_read: true,
+      created_at: '2026-11-18T02:05:00.000Z',
+    },
+    {
+      id: 105,
+      user_id: 3,
+      type: 'tugas_baru',
+      title: 'Untuk User Lain 2',
+      message: 'Bukan milik user 2',
+      is_read: false,
+      created_at: '2026-11-18T02:06:00.000Z',
+    },
+  ];
+
+  const next = findNewUnreadNotificationPopups({
+    notifications: updatedNotifs,
+    currentUserId: 2,
+    seenIds: baseline.nextSeenIds,
+    hasInitializedBaseline: baseline.nextHasInitializedBaseline,
+  });
+  assert.deepEqual(
+    next.toPopup.map((n) => n.id),
+    [102, 103]
+  );
+  assert.ok(next.nextSeenIds.has(102));
+  assert.ok(next.nextSeenIds.has(103));
+  assert.ok(next.nextSeenIds.has(104));
+
+  // Re-evaluating same snapshot does not repeat popups
+  const repeated = findNewUnreadNotificationPopups({
+    notifications: updatedNotifs,
+    currentUserId: 2,
+    seenIds: next.nextSeenIds,
+    hasInitializedBaseline: next.nextHasInitializedBaseline,
+  });
+  assert.equal(repeated.toPopup.length, 0);
+});
+
+test('shouldTriggerPwaAlerts enables popup and sound automatically for installed PWA and gates browser mode by opt-in', () => {
+  // Installed PWA with permission granted & sound on
+  assert.deepEqual(
+    shouldTriggerPwaAlerts({
+      isStandalone: true,
+      permission: 'granted',
+      soundEnabled: true,
+      browserOptIn: false,
+    }),
+    { eligible: true, allowPopup: true, allowSound: true }
+  );
+
+  // Installed PWA before notification permission granted: still eligible for sound
+  assert.deepEqual(
+    shouldTriggerPwaAlerts({
+      isStandalone: true,
+      permission: 'default',
+      soundEnabled: true,
+      browserOptIn: false,
+    }),
+    { eligible: true, allowPopup: false, allowSound: true }
+  );
+
+  // Regular browser without opt-in: neither popup nor sound triggers automatically
+  assert.deepEqual(
+    shouldTriggerPwaAlerts({
+      isStandalone: false,
+      permission: 'granted',
+      soundEnabled: true,
+      browserOptIn: false,
+    }),
+    { eligible: false, allowPopup: false, allowSound: false }
+  );
+
+  // Regular browser with explicit opt-in
+  assert.deepEqual(
+    shouldTriggerPwaAlerts({
+      isStandalone: false,
+      permission: 'granted',
+      soundEnabled: false,
+      browserOptIn: true,
+    }),
+    { eligible: true, allowPopup: true, allowSound: false }
+  );
 });
 

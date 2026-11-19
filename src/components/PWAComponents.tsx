@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { CloudOff, Download, RefreshCw, Smartphone, WifiOff, X } from 'lucide-react';
+import { BellRing, CloudOff, Download, RefreshCw, Smartphone, Volume2, WifiOff, X } from 'lucide-react';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
+import type { NotificationPermissionState } from '../utils/simsLogic';
 
 export const PWAInstallButton: React.FC<{ variant?: 'header' | 'auth' }> = ({ variant = 'header' }) => {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
@@ -138,4 +139,52 @@ export const OfflineBadge: React.FC = () => {
     </span>
   );
 };
+
+export const PWANotificationBanner: React.FC<{
+  isStandalone: boolean;
+  permission: NotificationPermissionState;
+  dismissed: boolean;
+  onEnable: () => Promise<void> | void;
+  onDismiss: () => void;
+}> = ({ isStandalone, permission, dismissed, onEnable, onDismiss }) => {
+  if (!isStandalone || permission !== 'default' || dismissed) {
+    return null;
+  }
+
+  return (
+    <div className="mb-4 sm:mb-6 max-w-6xl mx-auto bg-gradient-to-r from-blue-950/90 to-slate-900 border border-blue-500/40 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg shadow-blue-950/30">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-xl bg-blue-500/20 text-blue-300 flex items-center justify-center shrink-0">
+          <BellRing className="w-5 h-5" />
+        </div>
+        <div>
+          <div className="text-sm font-bold text-white flex items-center gap-2">
+            <span>Aktifkan Popup Layar HP &amp; Suara Notifikasi</span>
+          </div>
+          <p className="text-xs text-slate-300 mt-0.5 leading-relaxed">
+            Karena Anda membuka lewat aplikasi PWA, izinkan notifikasi agar tugas baru &amp; hasil verifikasi muncul popup di layar HP beserta bunyi notifikasi.
+          </p>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="px-3 py-2 text-xs font-semibold text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-800 rounded-xl transition"
+        >
+          Nanti
+        </button>
+        <button
+          type="button"
+          onClick={onEnable}
+          className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 rounded-xl transition flex items-center gap-1.5 shadow-md shadow-blue-600/30"
+        >
+          <Volume2 className="w-4 h-4 shrink-0" />
+          <span>Aktifkan Sekarang</span>
+        </button>
+      </div>
+    </div>
+  );
+};
+
 
